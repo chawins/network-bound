@@ -65,14 +65,19 @@ def load_mnist(batch_size,
         data_dir=data_dir, val_size=val_size, shuffle=shuffle, seed=seed)
 
     trainset = torch.utils.data.TensorDataset(x_train, y_train)
-    validset = torch.utils.data.TensorDataset(x_valid, y_valid)
     testset = torch.utils.data.TensorDataset(x_test, y_test)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    validloader = torch.utils.data.DataLoader(
-        validset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    if x_valid:
+        validset = torch.utils.data.TensorDataset(x_valid, y_valid)
+        validloader = torch.utils.data.DataLoader(
+            validset, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers)
+    else:
+        validloader = None
 
     return trainloader, validloader, testloader
 

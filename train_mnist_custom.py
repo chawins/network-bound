@@ -18,13 +18,6 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
-def get_input_bound(x, eps):
-    """Return interval bound of <x> given <eps>"""
-    x_ub = torch.clamp(x + eps, 0, 1)
-    x_lb = torch.clamp(x - eps, 0, 1)
-    return x, x_ub, x_lb
-
-
 def loss_function(z_tuple, targets, k):
     """Loss function used in Gowal et al."""
     z, z_ub, z_lb = z_tuple
@@ -36,7 +29,7 @@ def loss_function(z_tuple, targets, k):
     return k * loss + (1 - k) * loss_ub, z_hat
 
 
-def evaluate(net, dataloader, k, eps, device):
+def evaluate(net, dataloader, k, params, device):
 
     net.eval()
     val_loss = 0
@@ -46,9 +39,7 @@ def evaluate(net, dataloader, k, eps, device):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(dataloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            # x_tuple = get_input_bound(inputs, eps)
-            # z_tuple = net(x_tuple)
-            z_tuple = net(inputs)
+            z_tuple = net(inputs, params)
             loss, z_hat = loss_function(z_tuple, targets, k)
             val_loss += loss.item()
             _, predicted = z_tuple[0].max(1)
@@ -60,7 +51,7 @@ def evaluate(net, dataloader, k, eps, device):
     return val_loss / total, ibp_correct / total, correct / total
 
 
-def train(net, trainloader, validloader, optimizer, epoch, k, eps, device,
+def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
           log, save_best_only=True, best_acc=0, model_path='./model.pt',
           save_after_epoch=0):
 
@@ -72,9 +63,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, eps, device,
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        # x_tuple = get_input_bound(inputs, eps)
-        # z_tuple = net(x_tuple)
-        z_tuple = net(inputs)
+        z_tuple = net(inputs, params)
         loss, z_hat = loss_function(z_tuple, targets, k)
         loss.backward()
         optimizer.step()
@@ -86,7 +75,8 @@ def train(net, trainloader, validloader, optimizer, epoch, k, eps, device,
         correct += predicted.eq(targets).sum().item()
         ibp_correct += ibp_predicted.eq(targets).sum().item()
 
-    val_loss, val_ibp_acc, val_acc = evaluate(net, validloader, k, eps, device)
+    val_loss, val_ibp_acc, val_acc = evaluate(
+        net, validloader, k, params, device)
 
     log.info(' %5d | %.4f, %.4f, %.4f | %8.4f, %9.4f, %7.4f', epoch,
              train_loss / total, ibp_correct / total, correct / total,
@@ -123,7 +113,7 @@ def main():
     k_final = 0.5
     k_warmup_epoch = 40  # "warm-up" Original: 4
     eps_init = 0
-    eps_final = 0.2
+    eps_final = 1
     eps_warmup_epoch = 40  # "ramp-up" Original: 20
 
     # Subtracting pixel mean improves accuracy
@@ -170,8 +160,9 @@ def main():
 
     log.info('Building model...')
     params = {'p': 2,
-              'epsilon': 2,
+              'epsilon': eps_init,
               'input_bound': (0, 1)}
+    # TODO: change LpLinear to your layer
     net = IBPSmallCustom(LpLinear, params)
     # net = IBPMedium()
     # net = IBPBasic()
@@ -214,8 +205,9 @@ def main():
         # else:
         #     eps = eps_final
 
+        params['epsilon'] = eps
         best_acc = train(net, trainloader, validloader, optimizer, epoch,
-                         k, eps, device, log, save_best_only=True,
+                         k, params, device, log, save_best_only=True,
                          best_acc=best_acc, model_path=model_path,
                          save_after_epoch=eps_warmup_epoch)
         # lr_scheduler.step()
