@@ -140,3 +140,57 @@ class LpConv(IBPConv):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
+
+
+class EllipsLinear(nn.Linear):
+    """
+    Implement linear layer that bounds its output in an interval given an ellipsoidal
+    constraint on the perturbation of the input (i.e. ||Q delta||_2 <= eps)
+    """
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(LpLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        Return output of a linear layer when given input <x> and the interval
+        bounds under an ellipsoidal constraint on the perturbation,
+        z = W(x + delta) + b where ||Q delta||_2 <= eps
+
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['Q']: torch.tensor
+            Q that maps ellipsoidal uncertainty set to a epsilon ball
+        params['epsilon']: float
+            size of the uncertainty set (i.e. ||Q delta||_2 <= eps)
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        # nominal output
+        z = F.linear(x, self.weight, self.bias)
+
+        # get parameters
+        Q = params['Q']
+        eps = params['epsilon']
+
+        # calculate lower and upper bounds (dual norm)
+        w_norm = F.linear(self.weight, Q.inverse()).norm(2, dim=1)
+        z_ub = z + eps * w_norm
+        z_lb = z - eps * w_norm
+
+        # intersect with bound that comes from the input domain
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
