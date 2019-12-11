@@ -15,7 +15,7 @@ from lib.dataset_utils import *
 from lib.mnist_model import *
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 def loss_function(z_tuple, targets, k):
@@ -97,7 +97,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
 def main():
 
     # Set experiment id
-    exp_id = 8
+    exp_id = 11
     model_name = 'mnist_linf_ibp_exp%d' % exp_id
 
     # Training parameters
@@ -113,7 +113,7 @@ def main():
     k_final = 0.5
     k_warmup_epoch = 40  # "warm-up" Original: 4
     eps_init = 0
-    eps_final = 1
+    eps_final = 0.5
     eps_warmup_epoch = 40  # "ramp-up" Original: 20
 
     # Subtracting pixel mean improves accuracy

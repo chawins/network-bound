@@ -83,7 +83,10 @@ class LpLinear(nn.Linear):
         # get parameters
         p = params['p']
         eps = params['epsilon']
-        q = p / (p - 1)
+        if p > 1:
+            q = p / (p - 1)
+        elif p == 1:
+            q = float("inf")
 
         # calculate lower and upper bounds (dual norm)
         w_norm = self.weight.norm(q, dim=1)

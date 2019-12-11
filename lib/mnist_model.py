@@ -288,15 +288,20 @@ class IBPSmallCustom(nn.Module):
         super(IBPSmallCustom, self).__init__()
         self.num_classes = num_classes
         self.params = params
-        self.fc1 = first_layer(784, 1024)
+        self.fc1 = first_layer(784, 2000)
         self.relu1 = IBPReLU(inplace=True)
-        self.fc2 = IBPLinear(1024, 512)
+        self.fc2 = IBPLinear(2000, 2000)
         self.relu2 = IBPReLU(inplace=True)
-        self.fc3 = IBPLinear(512, num_classes)
+        self.fc3 = IBPLinear(2000, 512)
+        self.relu3 = IBPReLU(inplace=True)
+        self.fc4 = IBPLinear(512, num_classes)
 
         for m in self.modules():
             if isinstance(m, first_layer):
-                nn.init.kaiming_normal_(
+                nn.init.kaiming_uniform_(
+                    m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, IBPLinear):
+                nn.init.kaiming_uniform_(
                     m.weight, mode='fan_out', nonlinearity='relu')
 
     def forward(self, x, params=None):
@@ -310,7 +315,10 @@ class IBPSmallCustom(nn.Module):
         x_tuple = self.fc2(x_tuple)
         x_tuple = self.relu2(x_tuple)
 
-        z_tuple = self.fc3(x_tuple)
+        x_tuple = self.fc3(x_tuple)
+        x_tuple = self.relu3(x_tuple)
+
+        z_tuple = self.fc4(x_tuple)
         return z_tuple
 
     def get_bound(self, x, targets, params=None):
@@ -324,6 +332,9 @@ class IBPSmallCustom(nn.Module):
         x_tuple = self.fc2(x_tuple)
         x_tuple = self.relu2(x_tuple)
 
+        x_tuple = self.fc3(x_tuple)
+        x_tuple = self.relu3(x_tuple)
+
         # last layer
         x, x_ub, x_lb = x_tuple
         batch_size = x.size(0)
@@ -331,10 +342,10 @@ class IBPSmallCustom(nn.Module):
         e = eye[targets]
         diff = torch.zeros(batch_size, device=x.device) + 1e5
         for i in range(self.num_classes):
-            # minimize c^T x
-            c = (e - eye[i]) @ self.fc3.weight
+            # minimize c^T x = z_label - z_i
+            c = (e - eye[i]) @ self.fc4.weight
             z = (c * ((c > 0).float() * x_lb + (c <= 0).float() * x_ub)).sum(1)
-            z += (e - eye[i]) @ self.fc3.bias
+            z += (e - eye[i]) @ self.fc4.bias
             idx = np.where((z < diff).detach().cpu().numpy())[0]
             diff[idx] = z[idx]
         return diff
