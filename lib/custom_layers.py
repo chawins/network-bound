@@ -194,3 +194,188 @@ class EllipsLinear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
+    
+  class CardRelaxLinear(nn.linear):
+    """
+    Implement linear layer that bounds its output in an interval given a 
+    cardinality constraint intersected with feasibility constraint on the
+    perturbation of the input (i.e. ||delta||_0 <= eps & 0 <= x + delta <= 1)
+    """
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(LpLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        Return output of a linear layer when given input <x> and the interval
+        bounds under a cardinality constraint intersected with feasibility 
+        constraint on the perturbation,
+        z = W(x + delta) + b where ||delta||_0 <= eps & 0 <= x + delta <= 1
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['epsilon']: integer
+            size of the uncertainty set (i.e. ||delta||_0 <= eps)
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        # nominal output
+        z = F.linear(x, self.weight, self.bias)
+
+        # get parameters
+        eps = params['epsilon']
+
+        # calculate lower and upper bounds (dual norm)
+        w_norm = self.weight.norm(float('inf'), dim=1)
+        z_ub = z + eps * w_norm
+        z_lb = z - eps * w_norm
+
+        # intersect with bound that comes from the input domain
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
+
+
+class CardLinear(nn.Linear):
+    """
+    Implement linear layer that bounds its output in an interval given a 
+    cardinality constraint intersected with feasibility constraint on the
+    perturbation of the input (i.e. ||delta||_0 <= eps & 0 <= x + delta <= 1)
+    by solving linear programs
+    """
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(LpLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        Return output of a linear layer when given input <x> and the interval
+        bounds under a cardinality constraint intersected with feasibility 
+        constraint on the perturbation,
+        z = W(x + delta) + b where ||delta||_0 <= eps & 0 <= x + delta <= 1
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['epsilon']: integer
+            size of the uncertainty set (i.e. ||delta||_0 <= eps)
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        # nominal output
+        z = F.linear(x, self.weight, self.bias)
+
+        # get parameters
+        eps = params['epsilon']
+
+        # calculate lower and upper bounds
+        n = np.shape(x)[1] # get size of x
+        row = np.shape(x)[0]
+        z_lb = torch.zeros((row, n))
+        z_ub = torch.zeros((row, n))
+
+
+        for rn in range(1, row + 1):
+            zr = z[rn-1,:]
+            xr = x[rn-1,:]
+
+            zr_lb = torch.zeros(n)
+            for i in range(1, n + 1):
+                Wi = self.weight[i-1,:]
+                # coefficients for objective function
+                c = np.zeros(2 + 2 * n)
+                c[0] = 1
+                c = matrix(c)
+                # coefficients for constraints expressed as a matrix
+                A = np.zeros((2 + 4 * n, 2 + 2 * n))
+                A[0][0] = -1
+                A[0][1] = eps
+                A[0][2:n+2] = 1
+                A[1][0] = -1
+                A[2:n+2][1] = -1
+                temp = np.zeros((n, n))
+                np.fill_diagonal(temp, -1)
+                A[2:n+2,2:n+2] = temp
+                A[n+2:2*n+2,2:n+2] = temp
+                A[2*n+2:3*n+2,n+2:2*n+2] = temp
+                np.fill_diagonal(temp, 1)
+                A[3*n+2:4*n+2,n+2:2*n+2] = temp
+                np.fill_diagonal(temp, Wi.detach().numpy())
+                A[2:n+2,n+2:2*n+2] = temp
+                A = matrix(A)
+                # values of right-hand-side
+                b = np.zeros(2 + 4 * n)
+                b[0] = -1 * zr[i-1]
+                b[2*n+2:3*n+2] = xr
+                b[3*n+2:4*n+2] = 1 - xr
+                b = matrix(b)
+                sol = solvers.lp(c, A, b)
+                zr_lb[i-1] = sol['primal objective']
+
+            zr_ub = np.zeros(n)
+            for i in range(1, n + 1):
+                Wi = self.weight[:,i-1]
+                # coefficients for objective function
+                c = np.zeros(2 + 2 * n)
+                c[0] = 1
+                c = matrix(c)
+                # coefficients for constraints expressed as a matrix
+                A = np.zeros((2 + 4 * n, 2 + 2 * n))
+                A[0][0] = -1
+                A[0][1] = eps
+                A[0][2:n+2] = 1
+                A[1][0] = -1
+                A[2:n+2][1] = -1
+                temp = np.zeros((n, n))
+                np.fill_diagonal(temp, -1)
+                A[2:n+2,2:n+2] = temp
+                A[n+2:2*n+2,2:n+2] = temp
+                A[2*n+2:3*n+2,n+2:2*n+2] = temp
+                np.fill_diagonal(temp, 1)
+                A[3*n+2:4*n+2,n+2:2*n+2] = temp
+                np.fill_diagonal(temp, -1*Wi.detach().numpy())
+                A[2:n+2,n+2:2*n+2] = temp
+                A = matrix(A)
+                # values of right-hand-side
+                b = np.zeros(2 + 4 * n)
+                b[0] = zr[i-1]
+                b[2*n+2:3*n+2] = xr
+                b[3*n+2:4*n+2] = 1 - xr
+                b = matrix(b)
+                b = matrix(b)
+                sol = solvers.lp(c, A, b)
+                zr_ub[i-1] = -1 * sol['primal objective']
+                print(rn)
+                print(2)
+                print(i)
+
+            z_lb[rn-1,:] = zr_lb
+            z_ub[rn-1,:] = zr_ub
+
+        # intersect with bound that comes from the input domain
+        
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
+
