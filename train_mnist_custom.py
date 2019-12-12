@@ -97,7 +97,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
 def main():
 
     # Set experiment id
-    exp_id = 11
+    exp_id = 12
     model_name = 'mnist_linf_ibp_exp%d' % exp_id
 
     # Training parameters
@@ -159,11 +159,14 @@ def main():
         batch_size, data_dir='/data', val_size=0., shuffle=True, seed=seed)
 
     log.info('Building model...')
-    params = {'p': 2,
-              'epsilon': eps_init,
-              'input_bound': (0, 1)}
+    # params = {'p': 2,
+    #           'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
     # TODO: change LpLinear to your layer
-    net = IBPSmallCustom(LpLinear, params)
+    # net = IBPSmallCustom(LpLinear, params)
+    params = {'epsilon': eps_init,
+              'input_bound': (0, 1)}
+    net = IBPSmallCustom(CardLinear, params)
     # net = IBPMedium()
     # net = IBPBasic()
     net = net.to(device)
