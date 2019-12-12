@@ -442,3 +442,51 @@ class PermS1Linear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
+    
+class PermSallLinear(nn.Linear): # 
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(CustomLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        z = F.linear(x, self.weight, self.bias)
+
+        # TODO: main code should go here
+        # Check LpLinear for example
+        x_ind = x.argsort()
+        W_ind = self.weight.argsort()
+        x_sort = torch.take(x,x_ind)
+        W_np = self.weight.numpy()
+        W_ind_np = W_ind.numpy()
+        W_np_sort = np.take_along_axis(W_np,W_ind_np,-1)
+        x_sort_np = x_sort.numpy()
+        x_sort_rev_np = x_sort_np[::-1] #this causes errors on my machine
+        x_sort_rev = torch.tensor(x_sort_rev_np)
+        W_sort = torch.tensor(W_np_sort)
+
+        z_lb = self.bias + W_sort*x_sort_rev
+        z_ub = self.bias + W_sort*x_sort
+
+        # intersect with bound that comes from the input domain
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like() + input_bound[1]
+            x_lb = torch.zeros_like() + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
+
