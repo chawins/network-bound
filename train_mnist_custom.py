@@ -15,7 +15,7 @@ from lib.dataset_utils import *
 from lib.mnist_model import *
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 def loss_function(z_tuple, targets, k):
@@ -97,7 +97,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
 def main():
 
     # Set experiment id
-    exp_id = 8
+    exp_id = 12
     model_name = 'mnist_linf_ibp_exp%d' % exp_id
 
     # Training parameters
@@ -113,7 +113,7 @@ def main():
     k_final = 0.5
     k_warmup_epoch = 40  # "warm-up" Original: 4
     eps_init = 0
-    eps_final = 1
+    eps_final = 0.5
     eps_warmup_epoch = 40  # "ramp-up" Original: 20
 
     # Subtracting pixel mean improves accuracy
@@ -159,11 +159,16 @@ def main():
         batch_size, data_dir='/data', val_size=0., shuffle=True, seed=seed)
 
     log.info('Building model...')
-    params = {'p': 2,
-              'epsilon': eps_init,
-              'input_bound': (0, 1)}
+    # params = {'p': 2,
+    #           'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
     # TODO: change LpLinear to your layer
-    net = IBPSmallCustom(LpLinear, params)
+    # net = IBPSmallCustom(LpLinear, params)
+    # params = {'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
+    # net = IBPSmallCustom(CardLinear, params)
+    params = {'input_bound': (0, 1)}
+    net = IBPSmallCustom(PermS1Linear, params)
     # net = IBPMedium()
     # net = IBPBasic()
     net = net.to(device)

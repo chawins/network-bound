@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from cvxopt import matrix, solvers
 from lib.ibp_layers import IBPConv
 
 
@@ -83,7 +84,10 @@ class LpLinear(nn.Linear):
         # get parameters
         p = params['p']
         eps = params['epsilon']
-        q = p / (p - 1)
+        if p > 1:
+            q = p / (p - 1)
+        elif p == 1:
+            q = float("inf")
 
         # calculate lower and upper bounds (dual norm)
         w_norm = self.weight.norm(q, dim=1)
@@ -149,7 +153,7 @@ class EllipsLinear(nn.Linear):
     """
 
     def __init__(self, input_features, output_features, bias=True):
-        super(LpLinear, self).__init__(
+        super(EllipsLinear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
@@ -194,22 +198,23 @@ class EllipsLinear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
-    
-  class CardRelaxLinear(nn.linear):
+
+
+class CardRelaxLinear(nn.Linear):
     """
-    Implement linear layer that bounds its output in an interval given a 
+    Implement linear layer that bounds its output in an interval given a
     cardinality constraint intersected with feasibility constraint on the
     perturbation of the input (i.e. ||delta||_0 <= eps & 0 <= x + delta <= 1)
     """
 
     def __init__(self, input_features, output_features, bias=True):
-        super(LpLinear, self).__init__(
+        super(CardRelaxLinear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
         """
         Return output of a linear layer when given input <x> and the interval
-        bounds under a cardinality constraint intersected with feasibility 
+        bounds under a cardinality constraint intersected with feasibility
         constraint on the perturbation,
         z = W(x + delta) + b where ||delta||_0 <= eps & 0 <= x + delta <= 1
         x: torch.tensor
@@ -249,20 +254,20 @@ class EllipsLinear(nn.Linear):
 
 class CardLinear(nn.Linear):
     """
-    Implement linear layer that bounds its output in an interval given a 
+    Implement linear layer that bounds its output in an interval given a
     cardinality constraint intersected with feasibility constraint on the
     perturbation of the input (i.e. ||delta||_0 <= eps & 0 <= x + delta <= 1)
     by solving linear programs
     """
 
     def __init__(self, input_features, output_features, bias=True):
-        super(LpLinear, self).__init__(
+        super(CardLinear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
         """
         Return output of a linear layer when given input <x> and the interval
-        bounds under a cardinality constraint intersected with feasibility 
+        bounds under a cardinality constraint intersected with feasibility
         constraint on the perturbation,
         z = W(x + delta) + b where ||delta||_0 <= eps & 0 <= x + delta <= 1
         x: torch.tensor
@@ -281,19 +286,19 @@ class CardLinear(nn.Linear):
         eps = params['epsilon']
 
         # calculate lower and upper bounds
-        n = np.shape(x)[1] # get size of x
+        n = np.shape(x)[1]  # get size of x
         row = np.shape(x)[0]
-        z_lb = torch.zeros((row, n))
-        z_ub = torch.zeros((row, n))
-
+        z_lb = torch.zeros((row, n), device='cuda')
+        z_ub = torch.zeros((row, n), device='cuda')
+        solvers.options['show_progress'] = False
 
         for rn in range(1, row + 1):
-            zr = z[rn-1,:]
-            xr = x[rn-1,:]
+            zr = z[rn - 1, :]
+            xr = x[rn - 1, :]
 
-            zr_lb = torch.zeros(n)
+            zr_lb = torch.zeros(n, device='cuda')
             for i in range(1, n + 1):
-                Wi = self.weight[i-1,:]
+                Wi = self.weight[i - 1, :]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
                 c[0] = 1
@@ -302,31 +307,31 @@ class CardLinear(nn.Linear):
                 A = np.zeros((2 + 4 * n, 2 + 2 * n))
                 A[0][0] = -1
                 A[0][1] = eps
-                A[0][2:n+2] = 1
+                A[0][2:n + 2] = 1
                 A[1][0] = -1
-                A[2:n+2][1] = -1
+                A[2:n + 2][1] = -1
                 temp = np.zeros((n, n))
                 np.fill_diagonal(temp, -1)
-                A[2:n+2,2:n+2] = temp
-                A[n+2:2*n+2,2:n+2] = temp
-                A[2*n+2:3*n+2,n+2:2*n+2] = temp
+                A[2:n + 2, 2:n + 2] = temp
+                A[n + 2:2 * n + 2, 2:n + 2] = temp
+                A[2 * n + 2:3 * n + 2, n + 2:2 * n + 2] = temp
                 np.fill_diagonal(temp, 1)
-                A[3*n+2:4*n+2,n+2:2*n+2] = temp
-                np.fill_diagonal(temp, Wi.detach().numpy())
-                A[2:n+2,n+2:2*n+2] = temp
+                A[3 * n + 2:4 * n + 2, n + 2:2 * n + 2] = temp
+                np.fill_diagonal(temp, Wi.detach().cpu().numpy())
+                A[2:n + 2, n + 2:2 * n + 2] = temp
                 A = matrix(A)
                 # values of right-hand-side
                 b = np.zeros(2 + 4 * n)
-                b[0] = -1 * zr[i-1]
-                b[2*n+2:3*n+2] = xr
-                b[3*n+2:4*n+2] = 1 - xr
+                b[0] = -1 * zr[i - 1]
+                b[2 * n + 2:3 * n + 2] = xr.cpu()
+                b[3 * n + 2:4 * n + 2] = 1 - xr.cpu()
                 b = matrix(b)
                 sol = solvers.lp(c, A, b)
-                zr_lb[i-1] = sol['primal objective']
+                zr_lb[i - 1] = sol['primal objective']
 
-            zr_ub = np.zeros(n)
+            zr_ub = torch.zeros(n, device='cuda')
             for i in range(1, n + 1):
-                Wi = self.weight[:,i-1]
+                Wi = self.weight[:, i - 1]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
                 c[0] = 1
@@ -335,37 +340,34 @@ class CardLinear(nn.Linear):
                 A = np.zeros((2 + 4 * n, 2 + 2 * n))
                 A[0][0] = -1
                 A[0][1] = eps
-                A[0][2:n+2] = 1
+                A[0][2:n + 2] = 1
                 A[1][0] = -1
-                A[2:n+2][1] = -1
+                A[2:n + 2][1] = -1
                 temp = np.zeros((n, n))
                 np.fill_diagonal(temp, -1)
-                A[2:n+2,2:n+2] = temp
-                A[n+2:2*n+2,2:n+2] = temp
-                A[2*n+2:3*n+2,n+2:2*n+2] = temp
+                A[2:n + 2, 2:n + 2] = temp
+                A[n + 2:2 * n + 2, 2:n + 2] = temp
+                A[2 * n + 2:3 * n + 2, n + 2:2 * n + 2] = temp
                 np.fill_diagonal(temp, 1)
-                A[3*n+2:4*n+2,n+2:2*n+2] = temp
-                np.fill_diagonal(temp, -1*Wi.detach().numpy())
-                A[2:n+2,n+2:2*n+2] = temp
+                A[3 * n + 2:4 * n + 2, n + 2:2 * n + 2] = temp
+                np.fill_diagonal(temp, -1 * Wi.detach().cpu().numpy())
+                A[2:n + 2, n + 2:2 * n + 2] = temp
                 A = matrix(A)
                 # values of right-hand-side
                 b = np.zeros(2 + 4 * n)
-                b[0] = zr[i-1]
-                b[2*n+2:3*n+2] = xr
-                b[3*n+2:4*n+2] = 1 - xr
+                b[0] = zr[i - 1]
+                b[2 * n + 2:3 * n + 2] = xr.cpu()
+                b[3 * n + 2:4 * n + 2] = 1 - xr.cpu()
                 b = matrix(b)
                 b = matrix(b)
                 sol = solvers.lp(c, A, b)
-                zr_ub[i-1] = -1 * sol['primal objective']
-                print(rn)
-                print(2)
-                print(i)
+                zr_ub[i - 1] = -1 * sol['primal objective']
 
-            z_lb[rn-1,:] = zr_lb
-            z_ub[rn-1,:] = zr_ub
+            z_lb[rn - 1, :] = zr_lb
+            z_ub[rn - 1, :] = zr_ub
 
         # intersect with bound that comes from the input domain
-        
+
         input_bound = params['input_bound']
         if input_bound:
             x_ub = torch.zeros_like(x) + input_bound[1]
@@ -378,12 +380,12 @@ class CardLinear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
-        
 
-class SpatialPerturb_switch1(nn.Linear): # 
+
+class PermS1Linear(nn.Linear):
 
     def __init__(self, input_features, output_features, bias=True):
-        super(CustomLinear, self).__init__(
+        super(PermS1Linear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
@@ -397,35 +399,41 @@ class SpatialPerturb_switch1(nn.Linear): #
 
         z = F.linear(x, self.weight, self.bias)
 
-        # TODO: main code should go here
-        # Check LpLinear for example
-        lb = torch.zeros(784)
-        ub = torch.zeros(784)
-        n = list(W.size())[0]
-        for i in range(0,n) :  
-            Wi = torch.narrow(W,0,i,1)
-            min_val = torch.mm(Wi,x)
-            max_val = torch.mm(Wi,x)
-            x_0 = x[0]
-            for j in range(1,2) : # bc we dont need to check switching 0th with 0th
-                x_j = x[j]
-                xj = x.clone()
-                xj[0] = x_j
-                xj[j] = x_0
-                val = torch.mm(Wi,xj)
-                min_val = torch.min(min_val,val)
-                max_val = torch.max(max_val,val)
-            lb[i] = min_val
-            ub[i] = max_val
+        # lb = torch.zeros(784)
+        # ub = torch.zeros(784)
+        # n = list(W.size())[0]
+        # for i in range(0, n):
+        #     Wi = torch.narrow(W, 0, i, 1)
+        #     min_val = torch.mm(Wi, x)
+        #     max_val = torch.mm(Wi, x)
+        #     x_0 = x[0]
+        #     for j in range(1, 2):  # bc we dont need to check switching 0th with 0th
+        #         x_j = x[j]
+        #         xj = x.clone()
+        #         xj[0] = x_j
+        #         xj[j] = x_0
+        #         val = torch.mm(Wi, xj)
+        #         min_val = torch.min(min_val, val)
+        #         max_val = torch.max(max_val, val)
+        #     lb[i] = min_val
+        #     ub[i] = max_val
 
-        z_lb = self.bias + lb
-        z_ub = self.bias + ub
+        # (batch_size, j, outdim)
+        W1zj = x[:, 1:].unsqueeze(-1) @ self.weight[:, 0].unsqueeze(0)
+        Wjzj = x[:, 1:].unsqueeze(-1) * self.weight[:, 1:].transpose(0, 1)
+        Wjz1 = (self.weight[:, 1:].unsqueeze(-1) @
+                x[:, 0].unsqueeze(0)).permute(2, 1, 0)
+        W1z1 = x[:, 0].unsqueeze(-1) * self.weight[:, 0].unsqueeze(0)
+        diff = W1zj - Wjzj + Wjz1
+
+        z_lb = z + self.bias - W1z1 + diff.min(1)[0]
+        z_ub = z + self.bias - W1z1 + diff.max(1)[0]
 
         # intersect with bound that comes from the input domain
         input_bound = params['input_bound']
         if input_bound:
-            x_ub = torch.zeros_like() + input_bound[1]
-            x_lb = torch.zeros_like() + input_bound[0]
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
             mu = (x_ub + x_lb) / 2
             r = (x_ub - x_lb) / 2
             mu = F.linear(mu, self.weight, self.bias)
