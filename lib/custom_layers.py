@@ -399,35 +399,41 @@ class PermS1Linear(nn.Linear):
 
         z = F.linear(x, self.weight, self.bias)
 
-        # TODO: main code should go here
-        # Check LpLinear for example
-        lb = torch.zeros(784)
-        ub = torch.zeros(784)
-        n = list(W.size())[0]
-        for i in range(0, n):
-            Wi = torch.narrow(W, 0, i, 1)
-            min_val = torch.mm(Wi, x)
-            max_val = torch.mm(Wi, x)
-            x_0 = x[0]
-            for j in range(1, 2):  # bc we dont need to check switching 0th with 0th
-                x_j = x[j]
-                xj = x.clone()
-                xj[0] = x_j
-                xj[j] = x_0
-                val = torch.mm(Wi, xj)
-                min_val = torch.min(min_val, val)
-                max_val = torch.max(max_val, val)
-            lb[i] = min_val
-            ub[i] = max_val
+        # lb = torch.zeros(784)
+        # ub = torch.zeros(784)
+        # n = list(W.size())[0]
+        # for i in range(0, n):
+        #     Wi = torch.narrow(W, 0, i, 1)
+        #     min_val = torch.mm(Wi, x)
+        #     max_val = torch.mm(Wi, x)
+        #     x_0 = x[0]
+        #     for j in range(1, 2):  # bc we dont need to check switching 0th with 0th
+        #         x_j = x[j]
+        #         xj = x.clone()
+        #         xj[0] = x_j
+        #         xj[j] = x_0
+        #         val = torch.mm(Wi, xj)
+        #         min_val = torch.min(min_val, val)
+        #         max_val = torch.max(max_val, val)
+        #     lb[i] = min_val
+        #     ub[i] = max_val
 
-        z_lb = self.bias + lb
-        z_ub = self.bias + ub
+        # (batch_size, j, outdim)
+        W1zj = x[:, 1:].unsqueeze(-1) @ self.weight[:, 0].unsqueeze(0)
+        Wjzj = x[:, 1:].unsqueeze(-1) * self.weight[:, 1:].transpose(0, 1)
+        Wjz1 = (self.weight[:, 1:].unsqueeze(-1) @
+                x[:, 0].unsqueeze(0)).permute(2, 1, 0)
+        W1z1 = x[:, 0].unsqueeze(-1) * self.weight[:, 0].unsqueeze(0)
+        diff = W1zj - Wjzj + Wjz1
+
+        z_lb = z + self.bias - W1z1 + diff.min(1)[0]
+        z_ub = z + self.bias - W1z1 + diff.max(1)[0]
 
         # intersect with bound that comes from the input domain
         input_bound = params['input_bound']
         if input_bound:
-            x_ub = torch.zeros_like() + input_bound[1]
-            x_lb = torch.zeros_like() + input_bound[0]
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
             mu = (x_ub + x_lb) / 2
             r = (x_ub - x_lb) / 2
             mu = F.linear(mu, self.weight, self.bias)

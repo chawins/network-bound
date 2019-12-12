@@ -164,9 +164,11 @@ def main():
     #           'input_bound': (0, 1)}
     # TODO: change LpLinear to your layer
     # net = IBPSmallCustom(LpLinear, params)
-    params = {'epsilon': eps_init,
-              'input_bound': (0, 1)}
-    net = IBPSmallCustom(CardLinear, params)
+    # params = {'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
+    # net = IBPSmallCustom(CardLinear, params)
+    params = {'input_bound': (0, 1)}
+    net = IBPSmallCustom(PermS1Linear, params)
     # net = IBPMedium()
     # net = IBPBasic()
     net = net.to(device)
