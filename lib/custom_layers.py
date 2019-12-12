@@ -380,3 +380,62 @@ class CardLinear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
+<<<<<<< HEAD
+=======
+        
+
+class SpatialPerturb_switch1(nn.Linear): # 
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(CustomLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        z = F.linear(x, self.weight, self.bias)
+
+        # TODO: main code should go here
+        # Check LpLinear for example
+        lb = torch.zeros(784)
+        ub = torch.zeros(784)
+        n = list(W.size())[0]
+        for i in range(0,n) :  
+            Wi = torch.narrow(W,0,i,1)
+            min_val = torch.mm(Wi,x)
+            max_val = torch.mm(Wi,x)
+            x_0 = x[0]
+            for j in range(1,2) : # bc we dont need to check switching 0th with 0th
+                x_j = x[j]
+                xj = x.clone()
+                xj[0] = x_j
+                xj[j] = x_0
+                val = torch.mm(Wi,xj)
+                min_val = torch.min(min_val,val)
+                max_val = torch.max(max_val,val)
+            lb[i] = min_val
+            ub[i] = max_val
+
+        z_lb = self.bias + lb
+        z_ub = self.bias + ub
+
+        # intersect with bound that comes from the input domain
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like() + input_bound[1]
+            x_lb = torch.zeros_like() + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
+>>>>>>> 1a4384f4b525bc319ada2e65e479ece168388a33
