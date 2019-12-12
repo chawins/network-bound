@@ -51,6 +51,56 @@ class CustomLinear(nn.Linear):
 # ============================================================================ #
 
 
+class IntLinear(nn.Linear):
+    """
+    Implement linear layer that bounds its output in an interval given an Lp
+    constraint on the perturbation of the input (i.e. norm(delta, p) <= eps)
+    """
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(IntLinear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        Return output of a linear layer when given input <x> and the interval
+        bounds under an Lp-norm constraint on the perturbation,
+        z = W(x + delta) + b where norm(delta, p) <= eps
+
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['p']: float
+            p in p-norm that defines the uncertainty set
+        params['epsilon']: float
+            size of the uncertainty set (i.e. norm(delta, p) <= eps)
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        # nominal output
+        z = F.linear(x, self.weight, self.bias)
+
+        # get parameters
+        eps = params['epsilon']
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.clamp(x + eps, input_bound[0], input_bound[1])
+            x_lb = torch.clamp(x - eps, input_bound[0], input_bound[1])
+        else:
+            x_ub = x + eps
+            x_lb = x - eps
+
+        mu = (x_ub + x_lb) / 2
+        r = (x_ub - x_lb) / 2
+        mu = F.linear(mu, self.weight, self.bias)
+        r = F.linear(r, self.weight.abs())
+        z_lb = mu - r
+        z_ub = mu + r
+
+        return z, z_ub, z_lb
+
+
 class LpLinear(nn.Linear):
     """
     Implement linear layer that bounds its output in an interval given an Lp
@@ -84,7 +134,9 @@ class LpLinear(nn.Linear):
         # get parameters
         p = params['p']
         eps = params['epsilon']
-        if p > 1:
+        if p == float("inf"):
+            q = 1
+        elif p > 1:
             q = p / (p - 1)
         elif p == 1:
             q = float("inf")

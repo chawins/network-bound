@@ -289,11 +289,11 @@ class IBPSmallCustom(nn.Module):
         self.num_classes = num_classes
         self.params = params
         self.fc1 = first_layer(784, 2000)
-        self.relu1 = IBPReLU(inplace=True)
+        self.relu1 = IBPReLU(inplace=False)
         self.fc2 = IBPLinear(2000, 2000)
-        self.relu2 = IBPReLU(inplace=True)
+        self.relu2 = IBPReLU(inplace=False)
         self.fc3 = IBPLinear(2000, 512)
-        self.relu3 = IBPReLU(inplace=True)
+        self.relu3 = IBPReLU(inplace=False)
         self.fc4 = IBPLinear(512, num_classes)
 
         for m in self.modules():
@@ -349,3 +349,20 @@ class IBPSmallCustom(nn.Module):
             idx = np.where((z < diff).detach().cpu().numpy())[0]
             diff[idx] = z[idx]
         return diff
+
+    def get_activations(self, x, params=None):
+        x = x.view(x.size(0), -1)
+        if params:
+            x1 = self.fc1(x, params)
+        else:
+            x1 = self.fc1(x, self.params)
+        x_tuple = self.relu1(x1)
+
+        x2 = self.fc2(x_tuple)
+        x_tuple = self.relu2(x2)
+
+        x3 = self.fc3(x_tuple)
+        x_tuple = self.relu3(x3)
+
+        z_tuple = self.fc4(x_tuple)
+        return x1, x2, x3, z_tuple

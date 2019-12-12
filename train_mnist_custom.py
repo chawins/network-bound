@@ -15,7 +15,7 @@ from lib.dataset_utils import *
 from lib.mnist_model import *
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def loss_function(z_tuple, targets, k):
@@ -97,7 +97,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
 def main():
 
     # Set experiment id
-    exp_id = 12
+    exp_id = 24
     model_name = 'mnist_linf_ibp_exp%d' % exp_id
 
     # Training parameters
@@ -113,7 +113,7 @@ def main():
     k_final = 0.5
     k_warmup_epoch = 40  # "warm-up" Original: 4
     eps_init = 0
-    eps_final = 0.5
+    eps_final = 0.3
     eps_warmup_epoch = 40  # "ramp-up" Original: 20
 
     # Subtracting pixel mean improves accuracy
@@ -162,13 +162,29 @@ def main():
     # params = {'p': 2,
     #           'epsilon': eps_init,
     #           'input_bound': (0, 1)}
-    # TODO: change LpLinear to your layer
     # net = IBPSmallCustom(LpLinear, params)
     # params = {'epsilon': eps_init,
     #           'input_bound': (0, 1)}
     # net = IBPSmallCustom(CardLinear, params)
-    params = {'input_bound': (0, 1)}
-    net = IBPSmallCustom(PermS1Linear, params)
+    # params = {'input_bound': (0, 1)}
+    # net = IBPSmallCustom(PermS1Linear, params)
+    # params = {'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
+    # net = IBPSmallCustom(CardRelaxLinear, params)
+    params = {'epsilon': eps_init,
+              'input_bound': (0, 1)}
+    net = IBPSmallCustom(IntLinear, params)
+
+    # Q = torch.randn(784, 784)
+    # Q = Q @ Q.transpose(0, 1)
+    # eig = torch.symeig(Q)[0]
+    # eig /= eig.max()
+    # eig += eig.min().abs() * 2
+    # params = {'Q': Q.to(device),
+    #           'epsilon': eps_init,
+    #           'input_bound': (0, 1)}
+    # net = IBPSmallCustom(EllipsLinear, params)
+
     # net = IBPMedium()
     # net = IBPBasic()
     net = net.to(device)
