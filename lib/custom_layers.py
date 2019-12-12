@@ -380,14 +380,12 @@ class CardLinear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
-<<<<<<< HEAD
-=======
-        
 
-class SpatialPerturb_switch1(nn.Linear): # 
+
+class PermS1Linear(nn.Linear):
 
     def __init__(self, input_features, output_features, bias=True):
-        super(CustomLinear, self).__init__(
+        super(PermS1Linear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
@@ -406,19 +404,19 @@ class SpatialPerturb_switch1(nn.Linear): #
         lb = torch.zeros(784)
         ub = torch.zeros(784)
         n = list(W.size())[0]
-        for i in range(0,n) :  
-            Wi = torch.narrow(W,0,i,1)
-            min_val = torch.mm(Wi,x)
-            max_val = torch.mm(Wi,x)
+        for i in range(0, n):
+            Wi = torch.narrow(W, 0, i, 1)
+            min_val = torch.mm(Wi, x)
+            max_val = torch.mm(Wi, x)
             x_0 = x[0]
-            for j in range(1,2) : # bc we dont need to check switching 0th with 0th
+            for j in range(1, 2):  # bc we dont need to check switching 0th with 0th
                 x_j = x[j]
                 xj = x.clone()
                 xj[0] = x_j
                 xj[j] = x_0
-                val = torch.mm(Wi,xj)
-                min_val = torch.min(min_val,val)
-                max_val = torch.max(max_val,val)
+                val = torch.mm(Wi, xj)
+                min_val = torch.min(min_val, val)
+                max_val = torch.max(max_val, val)
             lb[i] = min_val
             ub[i] = max_val
 
@@ -438,4 +436,3 @@ class SpatialPerturb_switch1(nn.Linear): #
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
->>>>>>> 1a4384f4b525bc319ada2e65e479ece168388a33
