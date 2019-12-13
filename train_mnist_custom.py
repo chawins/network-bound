@@ -97,7 +97,7 @@ def train(net, trainloader, validloader, optimizer, epoch, k, params, device,
 def main():
 
     # Set experiment id
-    exp_id = 24
+    exp_id = 20
     model_name = 'mnist_linf_ibp_exp%d' % exp_id
 
     # Training parameters
@@ -113,7 +113,7 @@ def main():
     k_final = 0.5
     k_warmup_epoch = 40  # "warm-up" Original: 4
     eps_init = 0
-    eps_final = 0.3
+    eps_final = 0.025
     eps_warmup_epoch = 40  # "ramp-up" Original: 20
 
     # Subtracting pixel mean improves accuracy
@@ -168,22 +168,25 @@ def main():
     # net = IBPSmallCustom(CardLinear, params)
     # params = {'input_bound': (0, 1)}
     # net = IBPSmallCustom(PermS1Linear, params)
+    # params = {'input_bound': (0, 1)}
+    # net = IBPSmallCustom(PermS2Linear, params)
     # params = {'epsilon': eps_init,
     #           'input_bound': (0, 1)}
     # net = IBPSmallCustom(CardRelaxLinear, params)
-    params = {'epsilon': eps_init,
-              'input_bound': (0, 1)}
-    net = IBPSmallCustom(IntLinear, params)
-
-    # Q = torch.randn(784, 784)
-    # Q = Q @ Q.transpose(0, 1)
-    # eig = torch.symeig(Q)[0]
-    # eig /= eig.max()
-    # eig += eig.min().abs() * 2
-    # params = {'Q': Q.to(device),
-    #           'epsilon': eps_init,
+    # params = {'epsilon': eps_init,
     #           'input_bound': (0, 1)}
-    # net = IBPSmallCustom(EllipsLinear, params)
+    # net = IBPSmallCustom(IntLinear, params)
+
+    torch.manual_seed(seed)
+    Q = torch.randn(784, 784)
+    Q = Q @ Q.transpose(0, 1)
+    eig = torch.symeig(Q)[0]
+    Q /= eig.max()
+    Q += torch.eye(784) * eig.min().abs() * 2
+    params = {'Q_inv': Q.to(device).inverse(),
+              'epsilon': eps_init,
+              'input_bound': (0, 1)}
+    net = IBPSmallCustom(EllipsLinear, params)
 
     # net = IBPMedium()
     # net = IBPBasic()

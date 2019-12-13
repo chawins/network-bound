@@ -229,11 +229,11 @@ class EllipsLinear(nn.Linear):
         z = F.linear(x, self.weight, self.bias)
 
         # get parameters
-        Q = params['Q']
+        Q_inv = params['Q_inv']
         eps = params['epsilon']
 
         # calculate lower and upper bounds (dual norm)
-        w_norm = F.linear(self.weight, Q.inverse()).norm(2, dim=1)
+        w_norm = (self.weight @ Q_inv).norm(2, dim=1)
         z_ub = z + eps * w_norm
         z_lb = z - eps * w_norm
 
@@ -339,17 +339,18 @@ class CardLinear(nn.Linear):
 
         # calculate lower and upper bounds
         n = np.shape(x)[1]  # get size of x
+        col = np.shape(self.weight)[0]
         row = np.shape(x)[0]
-        z_lb = torch.zeros((row, n), device='cuda')
-        z_ub = torch.zeros((row, n), device='cuda')
+        z_lb = torch.zeros((row, col), device='cuda')
+        z_ub = torch.zeros((row, col), device='cuda')
         solvers.options['show_progress'] = False
 
         for rn in range(1, row + 1):
             zr = z[rn - 1, :]
             xr = x[rn - 1, :]
 
-            zr_lb = torch.zeros(n, device='cuda')
-            for i in range(1, n + 1):
+            zr_lb = torch.zeros(col, device='cuda')
+            for i in range(1, col + 1):
                 Wi = self.weight[i - 1, :]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
@@ -380,10 +381,11 @@ class CardLinear(nn.Linear):
                 b = matrix(b)
                 sol = solvers.lp(c, A, b)
                 zr_lb[i - 1] = sol['primal objective']
+                print(i)
 
-            zr_ub = torch.zeros(n, device='cuda')
-            for i in range(1, n + 1):
-                Wi = self.weight[:, i - 1]
+            zr_ub = torch.zeros(col, device='cuda')
+            for i in range(1, col + 1):
+                Wi = self.weight[i - 1, :]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
                 c[0] = 1
@@ -411,15 +413,14 @@ class CardLinear(nn.Linear):
                 b[2 * n + 2:3 * n + 2] = xr.cpu()
                 b[3 * n + 2:4 * n + 2] = 1 - xr.cpu()
                 b = matrix(b)
-                b = matrix(b)
                 sol = solvers.lp(c, A, b)
                 zr_ub[i - 1] = -1 * sol['primal objective']
+                print(i)
 
             z_lb[rn - 1, :] = zr_lb
             z_ub[rn - 1, :] = zr_ub
 
         # intersect with bound that comes from the input domain
-
         input_bound = params['input_bound']
         if input_bound:
             x_ub = torch.zeros_like(x) + input_bound[1]
@@ -478,8 +479,8 @@ class PermS1Linear(nn.Linear):
         W1z1 = x[:, 0].unsqueeze(-1) * self.weight[:, 0].unsqueeze(0)
         diff = W1zj - Wjzj + Wjz1
 
-        z_lb = z + self.bias - W1z1 + diff.min(1)[0]
-        z_ub = z + self.bias - W1z1 + diff.max(1)[0]
+        z_lb = z - W1z1 + diff.min(1)[0]
+        z_ub = z - W1z1 + diff.max(1)[0]
 
         # intersect with bound that comes from the input domain
         input_bound = params['input_bound']
@@ -494,11 +495,51 @@ class PermS1Linear(nn.Linear):
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
-    
-class PermSallLinear(nn.Linear): # 
+
+
+class PermS2Linear(nn.Linear):
 
     def __init__(self, input_features, output_features, bias=True):
-        super(CustomLinear, self).__init__(
+        super(PermS2Linear, self).__init__(
+            input_features, output_features, bias=bias)
+
+    def forward(self, x, params):
+        """
+        x: torch.tensor
+            input with size = (batch_size, self.weight.size(1))
+        params['input_bound']: tuple
+            lower and upper bounds of the input, (lb, ub). Set to None if do
+            not want to bound input
+        """
+
+        z = F.linear(x, self.weight, self.bias)
+
+        # (batch_size, 1) * (1, outdim)
+        diff = (x.max(1)[0] - x.min(1)[0]).unsqueeze(-1) * \
+            (self.weight.max(1)[0] - self.weight.min(1)[0]).unsqueeze(0)
+
+        z_lb = z - diff
+        z_ub = z + diff
+
+        # intersect with bound that comes from the input domain
+        input_bound = params['input_bound']
+        if input_bound:
+            x_ub = torch.zeros_like(x) + input_bound[1]
+            x_lb = torch.zeros_like(x) + input_bound[0]
+            mu = (x_ub + x_lb) / 2
+            r = (x_ub - x_lb) / 2
+            mu = F.linear(mu, self.weight, self.bias)
+            r = F.linear(r, self.weight.abs())
+            z_ub = torch.min(z_ub, mu + r)
+            z_lb = torch.max(z_lb, mu - r)
+
+        return z, z_ub, z_lb
+
+
+class PermSallLinear(nn.Linear):
+
+    def __init__(self, input_features, output_features, bias=True):
+        super(PermSallLinear, self).__init__(
             input_features, output_features, bias=bias)
 
     def forward(self, x, params):
@@ -516,17 +557,17 @@ class PermSallLinear(nn.Linear): #
         # Check LpLinear for example
         x_ind = x.argsort()
         W_ind = self.weight.argsort()
-        x_sort = torch.take(x,x_ind)
+        x_sort = torch.take(x, x_ind)
         W_np = self.weight.numpy()
         W_ind_np = W_ind.numpy()
-        W_np_sort = np.take_along_axis(W_np,W_ind_np,-1)
+        W_np_sort = np.take_along_axis(W_np, W_ind_np, -1)
         x_sort_np = x_sort.numpy()
-        x_sort_rev_np = x_sort_np[::-1] #this causes errors on my machine
+        x_sort_rev_np = x_sort_np[::-1]  # this causes errors on my machine
         x_sort_rev = torch.tensor(x_sort_rev_np)
         W_sort = torch.tensor(W_np_sort)
 
-        z_lb = self.bias + W_sort*x_sort_rev
-        z_ub = self.bias + W_sort*x_sort
+        z_lb = self.bias + W_sort * x_sort_rev
+        z_ub = self.bias + W_sort * x_sort
 
         # intersect with bound that comes from the input domain
         input_bound = params['input_bound']
@@ -541,4 +582,3 @@ class PermSallLinear(nn.Linear): #
             z_lb = torch.max(z_lb, mu - r)
 
         return z, z_ub, z_lb
-
