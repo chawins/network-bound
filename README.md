@@ -1,7 +1,7 @@
 # Bounding Outputs of Neural Network under Various Uncertainty Sets
 
 ### Members
-- Ryan O’Gorman
+- Ryan O’Gorman (SID: 26052341)
 - Alicia Yi-Ting Tsai (SID: 3034259700)
 - Chawin Sitawarin (SID: 3034213823)
 - Ruojie Zeng (SID: 3034193517)
