@@ -339,17 +339,18 @@ class CardLinear(nn.Linear):
 
         # calculate lower and upper bounds
         n = np.shape(x)[1]  # get size of x
+        col = np.shape(self.weight)[0]
         row = np.shape(x)[0]
-        z_lb = torch.zeros((row, n), device='cuda')
-        z_ub = torch.zeros((row, n), device='cuda')
+        z_lb = torch.zeros((row, col), device='cuda')
+        z_ub = torch.zeros((row, col), device='cuda')
         solvers.options['show_progress'] = False
 
         for rn in range(1, row + 1):
             zr = z[rn - 1, :]
             xr = x[rn - 1, :]
 
-            zr_lb = torch.zeros(n, device='cuda')
-            for i in range(1, n + 1):
+            zr_lb = torch.zeros(col, device='cuda')
+            for i in range(1, col + 1):
                 Wi = self.weight[i - 1, :]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
@@ -381,8 +382,8 @@ class CardLinear(nn.Linear):
                 sol = solvers.lp(c, A, b)
                 zr_lb[i - 1] = sol['primal objective']
 
-            zr_ub = torch.zeros(n, device='cuda')
-            for i in range(1, n + 1):
+            zr_ub = torch.zeros(col, device='cuda')
+            for i in range(1, col + 1):
                 Wi = self.weight[:, i - 1]
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
