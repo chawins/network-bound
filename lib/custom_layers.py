@@ -385,7 +385,11 @@ class CardLinear(nn.Linear):
 
             zr_ub = torch.zeros(col, device='cuda')
             for i in range(1, col + 1):
+<<<<<<< HEAD
                 Wi = self.weight[i - 1, :]
+=======
+                Wi = self.weight[:, i - 1]
+>>>>>>> b6e44c8cca427961a2312776160bd3ca4e704a10
                 # coefficients for objective function
                 c = np.zeros(2 + 2 * n)
                 c[0] = 1
